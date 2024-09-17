@@ -1,0 +1,17 @@
+---
+title: "MRM_prep"
+author: "Lili Benitez"
+date: "2024-09-17"
+output: html_document
+---
+```{r}
+library(tidyverse)
+```
+Read in raw specimen and floral data
+```{r}
+specimens<-read_csv("C:/Users/lb37426/Dropbox/skyIslands_saved/data/raw/specimens.csv")
+net_specimens<-specimens%>%
+  filter(is.na(PanLocation))#filter by netted insects
+
+blooms<-read_csv("C:/Users/lb37426/Dropbox/skyIslands_saved/data/raw/blooms.csv")
+```
