@@ -1,0 +1,15 @@
+---
+title: "SI bee diversity models and plots"
+author: "Lili Benitez"
+date: "2024-09-23"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+sitestats<-read_csv("C:/Users/lb37426/Dropbox/skyIslands_saved/backups/skyIslands-April4_2023/data/sitestats.csv")
+
+```

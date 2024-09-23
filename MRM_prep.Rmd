@@ -6,6 +6,9 @@ output: html_document
 ---
 ```{r}
 library(tidyverse)
+library(ggplot2)
+library(CommEcol)
+library(ecodist)
 ```
 Read in raw specimen and floral data
 ```{r}
