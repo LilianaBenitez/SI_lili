@@ -10,8 +10,36 @@ library(tidyverse)
 Read in raw specimen and floral data
 ```{r}
 specimens<-read_csv("C:/Users/lb37426/Dropbox/skyIslands_saved/data/raw/specimens.csv")
+
 net_specimens<-specimens%>%
   filter(is.na(PanLocation))#filter by netted insects
 
 blooms<-read_csv("C:/Users/lb37426/Dropbox/skyIslands_saved/data/raw/blooms.csv")
+```
+
+Now I want to calculate chao dissimliarity for netted bee and syrphid communities, averaging across sample rounds.
+```{r, bee chao dissimilarity}
+####bee dissimilarity####
+bee<-net_specimens%>%
+  filter(Order=="Hymenoptera")%>%
+  filter(!Family=="Sphecidae",!Family=="Braconidae",!Family=="Vespidae") #filter out wasps
+
+bee<-bee%>%
+  mutate(GenusSpecies =  paste(Genus, Species, SubSpecies)) #creates new column with genus species
+unique(bee$Year)
+bee<-bee%>%
+  select(Site, GenusSpecies, Year, SampleRound) #don't need all the other info
+bee_n<-bee%>%
+  group_by(Site, Year,SampleRound)%>%
+  count(GenusSpecies)
+  filter(!(Year=="2012"), !(Site=="CC"))%>% #we don't have bloom data for 2012 and CC is just a non-site site
+  mutate(SiteYear=paste0(Site, Year))%>%
+  filter(!(SiteYear=="MM2022"),!(SiteYear=="HM2022"),!(SiteYear=="SC2022"),!(SiteYear=="SM2022"))
+
+bee_all<-data.frame( plots = bee_n$SiteYear, species =bee_n$GenusSpecies,
+                      freq = bee_n$n, stringsAsFactors=FALSE)
+mean_bee<-crosstab(plots, species, freq, data=bee_all, type="mean")#average species frequencies
+net.bee.chao<-dis.chao(mean_bee, index="jaccard", version='prob')
+net.bee.chao<-as.matrix(net.bee.chao)
+#write.csv(net.bee.chao, "net.bee.prob.csv", row.names=FALSE)
 ```
