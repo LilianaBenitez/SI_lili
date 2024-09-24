@@ -4,45 +4,138 @@ author: "Lili Benitez"
 date: "2024-09-17"
 output: html_document
 ---
-```{r}
+##load libraries 
+```{r, warning=FALSE, echo=FALSE}
 library(tidyverse)
 library(ggplot2)
 library(CommEcol)
 library(ecodist)
 ```
-Read in raw specimen and floral data
+
+# Read in specimen and floral data
 ```{r}
-specimens<-read_csv("C:/Users/lb37426/Dropbox/skyIslands_saved/data/raw/specimens.csv")
+load("../../Dropbox/skyIslands/data/spec_net.Rdata")
 
-net_specimens<-specimens%>%
-  filter(is.na(PanLocation))#filter by netted insects
+net_specimens<-spec.net%>%
+  filter(Method=="Net")#filter by netted insects, actually all are netted I guess
 
-blooms<-read_csv("C:/Users/lb37426/Dropbox/skyIslands_saved/data/raw/blooms.csv")
+veg<-read_csv("../../Dropbox/skyIslands_saved/data/relational/relational/traditional/veg-complete.csv")
 ```
-
-Now I want to calculate chao dissimliarity for netted bee and syrphid communities, averaging across sample rounds.
+# Now I want to calculate chao dissimliarity for netted bee communities.
 ```{r, bee chao dissimilarity}
 ####bee dissimilarity####
 bee<-net_specimens%>%
-  filter(Order=="Hymenoptera")%>%
-  filter(!Family=="Sphecidae",!Family=="Braconidae",!Family=="Vespidae") #filter out wasps
+  filter(Order=="Hymenoptera")%>% #filter all hymenoptera, goes down to 10,783
+  filter(!Family=="Sphecidae",!Family=="Braconidae",!Family=="Vespidae") #filter out wasps, goes down to 9,958 observations
 
 bee<-bee%>%
-  mutate(GenusSpecies =  paste(Genus, Species, SubSpecies)) #creates new column with genus species
-unique(bee$Year)
-bee<-bee%>%
-  select(Site, GenusSpecies, Year, SampleRound) #don't need all the other info
+  select(Site, GenusSpecies, Year, SampleRound, State, Meadow) #don't need all the other info
 bee_n<-bee%>%
   group_by(Site, Year,SampleRound)%>%
-  count(GenusSpecies)
-  filter(!(Year=="2012"), !(Site=="CC"))%>% #we don't have bloom data for 2012 and CC is just a non-site site
-  mutate(SiteYear=paste0(Site, Year))%>%
-  filter(!(SiteYear=="MM2022"),!(SiteYear=="HM2022"),!(SiteYear=="SC2022"),!(SiteYear=="SM2022"))
-
+  count(GenusSpecies)%>%
+filter(!(Site=="CC"))%>%# CC is just a non-site site
+  mutate(SiteYear=paste0(Site, Year))
 bee_all<-data.frame( plots = bee_n$SiteYear, species =bee_n$GenusSpecies,
                       freq = bee_n$n, stringsAsFactors=FALSE)
 mean_bee<-crosstab(plots, species, freq, data=bee_all, type="mean")#average species frequencies
-net.bee.chao<-dis.chao(mean_bee, index="jaccard", version='prob')
-net.bee.chao<-as.matrix(net.bee.chao)
+bee.dis<-dis.chao(mean_bee, index="jaccard", version='prob') #I think the probability version was better than the rare one for some reason? 
+bee.dis<-as.matrix(bee.dis) #at the moment, all site/year combos, diagonal is all zeros which is good
+
 #write.csv(net.bee.chao, "net.bee.prob.csv", row.names=FALSE)
 ```
+
+# Now we are doing the same thing for the syrphids
+```{r, syrph chao dissimilarity}
+syrph<-net_specimens%>%
+  filter(Family=="Syrphidae") #filter all syrphids, 2,565 observations
+syrph<-syrph%>%
+  select(Site, GenusSpecies, Year, SampleRound, State, Meadow) #don't need all the other info
+syrph_n<-syrph%>%
+  group_by(Site, Year,SampleRound)%>%
+  count(GenusSpecies)%>%
+filter(!(Site=="CC"))%>%# CC is just a non-site site
+  mutate(SiteYear=paste0(Site, Year))
+syrph_all<-data.frame( plots = syrph_n$SiteYear, species =syrph_n$GenusSpecies,
+                      freq = syrph_n$n, stringsAsFactors=FALSE)
+mean_syrph<-crosstab(plots, species, freq, data=syrph_all, type="mean")#average species frequencies
+syrph.dis<-dis.chao(mean_syrph, index="jaccard", version='prob') #I think the probability version was better than the rare one for some reason? 
+syrph.dis<-as.matrix(syrph.dis) #at the moment, all site/year combos, diagonal is all zeros which is good
+```
+
+##Now we want to calculate the community dissimilarity for the flowering communities. I originally did this with the bloom dataset, but now I am going to use the veg quadrat data instead, since it includes 2012. Going to be pulling code straight from 4_specimenprep so I don't re-do work lol. 
+
+```{r}
+veg<-read_csv("../../Dropbox/skyIslands_saved/data/relational/relational/traditional/veg-complete.csv")
+source("C:/Users/lb37426/Dropbox/skyIslands/dataPrep/src/misc.R")
+source("C:/Users/lb37426/Dropbox/skyIslands/dataPrep/src/prepNets.R")
+source("C:/Users/lb37426/Dropbox/skyIslands/dataPrep/src/specialization.R")
+
+veg$PlantGenusSpecies <-  fix.white.space(paste(veg$PlantGenus,
+                                          veg$PlantSpecies,
+                                          veg$PlantVar))
+
+## people in the field put NA as a placehold where there were no
+## flowers to express data was collected, just nothing was
+## there. Not needed for site level calculations.
+veg <- veg[veg$PlantGenusSpecies != "",]
+
+## check plant names, run july 2024
+scientificName <- unique(c(id(veg$PlantGenusSpecies)))
+#write.csv(scientificName,
+    #      file="../../skyIslands_saved/data/checks/all_plants.csv",
+         # row.names=FALSE)
+
+## use gbif backbone  https://www.gbif.org/tools/species-lookup
+
+## update plant names
+checked.plant.names <-
+    read.csv(file="../../Dropbox/skyIslands_saved/data/checks/normalized_plants.csv")
+
+veg <- fixPlantNamesgBIF(veg, "PlantGenusSpecies",
+                     checked.plant.names) #this just creates a bunch of NAs in PlantGenusSPecies for me? 
+
+id(veg$PlantGenusSpecies) #character (0)
+
+## fix dates
+veg$Date <- as.Date(veg$Date,  "%Y-%m-%d")
+veg$Year <- format(veg$Date,  "%Y")
+
+## 2017-2022 quad options
+quads.2017.2022 <- unique(veg$Quadrat)
+quads.2012 <- unique(veg$Quadrat[veg$Year == 2012])
+## quads not done in 2012
+not.in.2012 <- quads.2017.2022[!quads.2017.2022 %in% quads.2012]
+
+## prep a matrix of all the quads for site richness etc.
+combos <- collections[rep(seq_len(nrow(collections)),
+                          each = length(quads.2017.2022)), ]
+combos$Quadrat <- quads.2017.2022
+## drop the quads not done in 2012
+combos <- combos[!(combos$Year == 2012 & combos$Quad %in%
+                   not.in.2012),]
+
+## blooming flowers
+veg.blooming <- veg[veg$NumBlooms != "" &
+                    veg$NumBlooms != "0",]
+
+## didn't count the exact number of flowers in 2017-2018, use
+## midpoints of bins
+veg.blooming$NumBloomsNum <- veg.blooming$NumBlooms
+veg.blooming$NumBloomsNum[veg.blooming$NumBlooms == "<10"] <- 5
+veg.blooming$NumBloomsNum[veg.blooming$NumBlooms == "10-100"] <- 50
+veg.blooming$NumBloomsNum[veg.blooming$NumBlooms == "100-1000"] <- 100
+
+veg.blooming$NumBloomsNum <- as.numeric(veg.blooming$NumBloomsNum)
+
+## *******************************************************************
+##  veg site summaries as mean of quads
+## *******************************************************************
+
+## by quadrat for a site average
+veg.bloom.quad.sp <- veg.blooming %>%
+    group_by(Quadrat, Site, Year, PlantGenusSpecies, SampleRound) %>%
+    summarise(FloralAbundance = sum(NumBloomsNum),
+              FloweringPlantAbundance= sum(PlantCount, na.rm=TRUE))
+
+```
+
