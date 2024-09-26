@@ -37,8 +37,8 @@ bee_n<-bee%>%
   group_by(Site, Year,SampleRound)%>%
   count(GenusSpecies)%>%
 filter(!(Site=="CC"))%>%# CC is just a non-site site
-  mutate(SiteYear=paste0(Site, Year))%>%
-   filter(!(SiteYear=="PL2017")) #veg data was messed up here, plus there was only one sample round before fire
+  mutate(SiteYear=paste0(Site, Year))
+   #filter(!(SiteYear=="PL2017")) #veg data was messed up here, plus there was only one sample round before fire
 bee_all<-data.frame( plots = bee_n$SiteYear, species =bee_n$GenusSpecies,
                       freq = bee_n$n, stringsAsFactors=FALSE)
 mean_bee<-crosstab(plots, species, freq, data=bee_all, type="mean")#average species frequencies
@@ -51,15 +51,15 @@ bee.dis<-as.matrix(bee.dis) #at the moment, all site/year combos, diagonal is al
 ### Now we are doing the same thing for the syrphids
 ```{r, syrph chao dissimilarity}
 syrph<-net_specimens%>%
-  filter(Order=="Diptera") #filter all syrphids, 2,565 observations
+  filter(Family=="Syrphidae") #filter all syrphids, 2,565 observations
 syrph<-syrph%>%
   select(Site, GenusSpecies, Year, SampleRound, State, Meadow) #don't need all the other info
 syrph_n<-syrph%>%
   group_by(Site, Year,SampleRound)%>%
   count(GenusSpecies)%>%
 filter(!(Site=="CC"))%>%# CC is just a non-site site
-  mutate(SiteYear=paste0(Site, Year))%>%
-   filter(!(SiteYear=="PL2017")) #veg data was messed up here, plus there was only one sample round before fire
+  mutate(SiteYear=paste0(Site, Year))
+  # filter(!(SiteYear=="PL2017")) #veg data was messed up here, plus there was only one sample round before fire
 syrph_all<-data.frame( plots = syrph_n$SiteYear, species =syrph_n$GenusSpecies,
                       freq = syrph_n$n, stringsAsFactors=FALSE)
 mean_syrph<-crosstab(plots, species, freq, data=syrph_all, type="mean")#average species frequencies
@@ -72,50 +72,71 @@ syrph.dis<-as.matrix(syrph.dis) #there were no syrphs at UK, diagonal is all zer
 
 ```{r}
 veg_quad<-read_csv("veg.bloom.quad.sp.csv")
-mean_quad<-veg_quad%>%
+sum_quad<-veg_quad%>%
   group_by(Site, Year, SampleRound, PlantGenusSpecies)%>%
-  mutate(mean_abundance_per_quadrat=mean(FloweringPlantAbundance))
-meadow.size<-spec.net%>%
-  select(Site, Area)%>%
-  unique()
-mean_quad<-left_join(mean_quad, meadow.size, by="Site")
-mean_quad<-mean_quad%>%
-  group_by(Site, Year, PlantGenusSpecies)%>%
-  mutate(mean_abundance_per_sampleR=mean(mean_abundance_per_quadrat))
+  mutate(sum_abundance_site_SR=sum(FloweringPlantAbundance), sum_blooms_site_SR=sum(FloralAbundance)) #there are some issues with 2012- abundance is likely actually bloom counts
 
-scaled_abundance<-mean_quad%>%
-  mutate(scaled_abundance=mean_abundance_per_sampleR*Area)
+#meadow.size<-spec.net%>%
+#select(Site, Area)%>%
+ # unique()
+#mean_quad<-left_join(mean_quad, meadow.size, by="Site")
+#mean_quad<-mean_quad%>%
+ # group_by(Site, Year, PlantGenusSpecies)%>%
+ # mutate(mean_abundance_per_year=mean(sum_abundance_site_SR))
 
-mean_quad<-mean_quad%>%
+#scaled_abundance<-mean_quad%>%
+ # mutate(scaled_abundance=mean_abundance_per_year*Area) #if we need to scale up to the meadow size (actually need to fix this calculation since I summed the quadrats instead of averaging)
+
+sum_quad<-sum_quad%>%
    mutate(SiteYear=paste0(Site, Year))%>%
-  filter(!(SiteYear=="PL2017"))%>% #veg data was messed up here, plus there was only one sample round before fire
-  select(SiteYear, PlantGenusSpecies, Year, mean_abundance_per_quadrat, SampleRound)
+  filter(!(SiteYear=="RP2018"))%>% #no specimen data for RP in 2018???
+ # filter(!(SiteYear=="PL2017"))%>% #veg data was messed up here, plus there was only one sample round before fire
+  select(SiteYear, PlantGenusSpecies, Year,sum_abundance_site_SR, sum_blooms_site_SR, SampleRound)
 
-veg_all<-data.frame( plots = mean_quad$SiteYear, species =mean_quad$PlantGenusSpecies,
-                      freq = mean_quad$mean_abundance_per_quadrat, sampleR=mean_quad$SampleRound, stringsAsFactors=FALSE)%>% #this takes the frequencies of each species at the quadrat level and makes it into a dataframe for 'crosstab'
+#veg_all<-data.frame( plots = sum_quad$SiteYear, species =sum_quad$PlantGenusSpecies,
+#                      freq = sum_quad$sum_abundance_site_SR, sampleR=sum_quad$SampleRound, stringsAsFactors=FALSE)%>% #this takes the frequencies of each species at the quadrat level and makes it into a dataframe for 'crosstab'
+ # unique()
+#mean_veg<-crosstab(plots, species, freq, data=veg_all, type="mean")#average species frequencies across sample round, transpose so species are the columns and siteyears are the rows
+
+bloom_all<-data.frame( plots = sum_quad$SiteYear, species =sum_quad$PlantGenusSpecies,
+                      freq = sum_quad$sum_blooms_site_SR, sampleR=sum_quad$SampleRound, stringsAsFactors=FALSE)%>% #this takes the frequencies of each species at the quadrat level and makes it into a dataframe for 'crosstab'
   unique()
-mean_veg<-crosstab(plots, species, freq, data=veg_all, type="mean")#average species frequencies across sample round, transpose so species are the columns and siteyears are the rows
+mean_bloom<-crosstab(plots, species, freq, data=bloom_all, type="mean")#average species frequencies across sample round, transpose so species are the columns and siteyears are the rows
 
-veg.dis<-dis.chao(mean_veg, index="jaccard", version='prob') #calculates chao dissimilarity across the siteyears
-veg.dis<-as.matrix(veg.dis)# looks good
+#veg.dis<-dis.chao(mean_veg, index="jaccard", version='prob') #calculates chao dissimilarity across the siteyears
+#veg.dis<-as.matrix(veg.dis)# looks good
 
+bloom.dis<-dis.chao(mean_bloom, index="jaccard", version='prob') #calculates chao dissimilarity across the siteyears
+bloom.dis<-as.matrix(bloom.dis)# looks good
 ##### need to make a separate matrix for syrphs since there were none for UK
-mean_quad_syrph<-mean_quad%>%
+sum_quad_syrph<-sum_quad%>%
    mutate(SiteYear=paste0(Site, Year))%>%
-  filter(!(SiteYear=="PL2017"),!(SiteYear=="UK2017") )%>% #veg data was messed up here, plus there was only one sample round before fire
-  select(SiteYear, PlantGenusSpecies, Year, mean_abundance_per_quadrat, SampleRound)
-veg_syrph<-data.frame( plots = mean_quad_syrph$SiteYear, species = mean_quad_syrph$PlantGenusSpecies, freq = mean_quad_syrph$mean_abundance_per_quadrat, sampleR=mean_quad_syrph$SampleRound, stringsAsFactors=FALSE)%>% #this takes the frequencies of each species at the quadrat level and makes it into a dataframe for 'crosstab'
+  filter(!(SiteYear=="RP2018"))%>% #no specimen data for RP in 2018???
+#  filter(!(SiteYear=="PL2017"))%>%#veg data was messed up here, plus there was only one sample round before fire
+  filter(!(SiteYear=="UK2017"))%>% 
+  select(SiteYear, PlantGenusSpecies, Year, sum_abundance_site_SR,sum_blooms_site_SR, SampleRound)
+
+#veg_syrph<-data.frame( plots = sum_quad_syrph$SiteYear, species = sum_quad_syrph$PlantGenusSpecies, freq = sum_quad_syrph$sum_abundance_site_SR, sampleR=sum_quad_syrph$SampleRound, stringsAsFactors=FALSE)%>% #this takes the frequencies of each species at the quadrat level and makes it into a dataframe for 'crosstab'
+ # unique()
+#mean_veg_syrph<-crosstab(plots, species, freq, data=veg_syrph, type="mean")#average species frequencies across sample round, transpose so species are the columns and siteyears are the rows
+
+#veg.dis.syrph<-dis.chao(mean_veg_syrph, index="jaccard", version='prob') #calculates chao dissimilarity across the siteyears
+
+#veg.dis.syrph<-as.matrix(veg.dis.syrph)#looks good
+
+bloom_syrph<-data.frame( plots = sum_quad_syrph$SiteYear, species = sum_quad_syrph$PlantGenusSpecies, freq = sum_quad_syrph$sum_blooms_site_SR, sampleR=sum_quad_syrph$SampleRound, stringsAsFactors=FALSE)%>% #this takes the frequencies of each species at the quadrat level and makes it into a dataframe for 'crosstab'
   unique()
-mean_veg_syrph<-crosstab(plots, species, freq, data=veg_syrph, type="mean")#average species frequencies across sample round, transpose so species are the columns and siteyears are the rows
+mean_bloom_syrph<-crosstab(plots, species, freq, data=bloom_syrph, type="mean")#average species frequencies across sample round, transpose so species are the columns and siteyears are the rows
 
-veg.dis.syrph<-dis.chao(mean_veg_syrph, index="jaccard", version='prob') #calculates chao dissimilarity across the siteyears
+bloom.dis.syrph<-dis.chao(mean_bloom_syrph, index="jaccard", version='prob') #calculates chao dissimilarity across the siteyears
 
-veg.dis.syrph<-as.matrix(veg.dis.syrph)#looks good
+bloom.dis.syrph<-as.matrix(bloom.dis.syrph)#looks good
 
 ```
 ### we now want to calculate the geographic distances between sites
 ```{r}
-lat_long<-sitestats%>%
-  select(Long, Lat, Site)
+lat_long<-spec.net%>%
+  select(Long, Lat, Site)%>%
+  unique()
 ```
 
