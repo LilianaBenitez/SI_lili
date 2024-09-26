@@ -1,0 +1,522 @@
+<<<<<<< HEAD
+---
+title: "Sky Island MRMs (permute modification)"
+author: "Lili Benitez"
+date: "most recent edits `r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    number_sections: true
+    theme: cosmo
+    code_folding: hide
+    
+---    
+# Overview
+Attempting to run MRMs on chao dissimilarity metrics for plants and polliantors across the Madrean Sky Islands. Code to modify the MRMs to account for site/year replication comes from Kaysee Arrowsmith with her permission. 
+
+# Load Packages
+```{r packages, message=FALSE, warning=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(geosphere)
+library(ecodist)
+library(Matrix)
+library(lmtest)
+library(tidyverse)
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(gdm)
+library(CommEcol)
+library(vegan)
+library(conflicted)
+theme_set(theme_classic())
+```
+# Import data
+```{r}
+setwd("C:/Users/lb37426/Box/Sky Islands Traits")
+#netted bee community chao dissimilarity
+bee.chao<-read.csv("net.bee.prob.csv")
+rownames(bee.chao)<-bee.chao$X
+bee.chao<-bee.chao%>%
+  select(-X)
+#flowering community chao dissimilarity data
+flor<-read.csv("flor.chao.prob.csv")
+rownames(flor)<-flor$X
+flor<-flor%>%
+  select(-X)
+#precipitation 
+precip<-read.csv("precip_4years.csv")%>%
+  select(Precip, SiteYear)
+rownames(precip)<-precip$SiteYear
+precip<-precip%>%
+  select(Precip)
+precipitation_matrix<-as.matrix(dist(precip,method = "maximum",diag=TRUE))
+#geographic distance
+lat_long<-read.csv("unique.latlong.csv")
+geo<-lat_long%>%
+  select(Longitude, Latitude)
+geo.dis <- distm(geo, fun = distGeo)
+rownames(geo.dis)<-lat_long$SiteYear
+colnames(geo.dis)<-lat_long$SiteYear
+#convert to Km
+geo.km<-geo.dis/1000# Apply distm function
+
+#forest proportion
+Forest<-read.csv("forest.prop.csv")%>%
+  select(-Site)
+rownames(Forest)<-Forest$SiteYear
+Forest<-Forest%>%select(-SiteYear)
+forest_dis<-as.matrix(dist(Forest,method = "maximum",diag=TRUE))
+#write.csv(forest_dis, "Forest.dist.csv",row.names = FALSE)
+```
+#Here Kaysee slightly altered the `MRM` function from the `ecodist` package to accept a response variable in the form of `cbind(successes, failures)`. 
+
+```{r mrm customize}
+MRM.base <- function (formula = formula(data), data, nperm = 1000, method = "linear", mrank = FALSE, permute.control = "permute.control") {
+  m <- match.call(expand.dots = FALSE)
+  m2 <- match(c("formula", "data"), names(m), nomatch = 0)
+  m <- m[c(1, m2)]
+  m[[1]] <- as.name("model.frame")
+  m <- eval(m, parent.frame())
+  m <- as.matrix(m)
+  n <- (1 + sqrt(1 + 8 * nrow(m)))/2
+  if (abs(n - round(n)) > 1e-07) 
+    stop("Matrix not square.\n")
+  n <- round(n)
+  if (ncol(m) < 2) 
+    stop("Not enough data. \n")
+  if (method == "linear") {
+    X <- m[, 2:ncol(m), drop = FALSE]
+      Y <- m[, 1, drop = FALSE]
+      colnames(Y) <- "Y"
+      newdata <- data.frame(Y = Y, X)
+      fit1 <- lm(Y ~ ., data = newdata)
+      b <- coefficients(fit1)
+      sig <- summary(fit1)$sigma
+      sig.df <- summary(fit1)$df[2]
+      b.pval <- NA
+      dev.pval <- NA
+      if (nperm > 0) {
+        b.all <- matrix(NA, nrow = nperm, ncol = length(b))
+        b.all[1, ] <- b
+        sig.all <- rep(NA, nperm)
+        sig.all[1] <- sig
+        for (i in 2:nperm) {
+          newSample <- shuffle(n, control = permute.control)
+          newY <- full(Y)
+          newY <- newY[newSample, newSample]
+          newY <- lower(newY)
+          newdata <- data.frame(Y = newY, X = X)
+          newfit <- lm(Y ~ ., data = newdata)
+          b.all[i, ] <- coefficients(newfit)
+          sig.all[i] <- summary(newfit)$sigma
+        }
+        b.pval <- apply(b.all, 2, function(x) length(x[abs(x) >= 
+          abs(x[1])])/nperm)
+        R2.pval <- length(sig.all[sig.all >= sig.all[1]])/nperm
+      }
+      results <- list(coef = cbind(b, pval = b.pval), 
+        R2 = c(R2 = sig, R2.df = sig.df, 
+          R2.pval = R2.pval))
+  }
+  else {
+    if (method == "logistic") {
+      X <- m[, 2:ncol(m), drop = FALSE]
+      Y <- m[, 1, drop = FALSE]
+      colnames(Y) <- "Y"
+      newdata <- data.frame(Y = Y, X)
+      fit1 <- glm(Y ~ ., data = newdata, family = binomial(link = "logit"))
+      b <- coefficients(fit1)
+      dev <- summary(fit1)$deviance
+      dev.df <- summary(fit1)$df.residual
+      b.pval <- NA
+      dev.pval <- NA
+      if (nperm > 0) {
+        b.all <- matrix(NA, nrow = nperm, ncol = length(b))
+        b.all[1, ] <- b
+        dev.all <- rep(NA, nperm)
+        dev.all[1] <- dev
+        for (i in 2:nperm) {
+          newSample <- shuffle(n, control = permute.control)
+          newY <- full(Y)
+          newY <- newY[newSample, newSample]
+          newY <- lower(newY)
+          newdata <- data.frame(Y = newY, X = X)
+          newfit <- glm(Y ~ ., data = newdata, family = binomial(link = "logit"))
+          b.all[i, ] <- coefficients(newfit)
+          dev.all[i] <- summary(newfit)$deviance
+        }
+        b.pval <- apply(b.all, 2, function(x) length(x[abs(x) >= 
+          abs(x[1])])/nperm)
+        dev.pval <- length(dev.all[dev.all >= dev.all[1]])/nperm
+      }
+      results <- list(coef = cbind(b, pval = b.pval), 
+        dev = c(resid.dev = dev, resid.df = dev.df, 
+          dev.pval = dev.pval))
+    }
+    else {
+      stop("method must be 'linear' or 'logistic'\n")
+    }
+    }
+  results
+}
+```
+## Analysis
+```{r permutation control year}
+# Permutation control for blocks and plots
+siteyear.df <- data.frame(row = 1:nrow(bee.chao),
+                        concat = rownames(bee.chao),
+                        year = str_sub(rownames(bee.chao), start=-4), 
+                        site=str_sub(rownames(bee.chao), start=1, end=2))
+
+
+yearpermute.control <- how(Within(type = "free"),
+                       blocks = siteyear.df$year)
+
+sitepermute.control<-how(Within(type = "free"),
+                       blocks = siteyear.df$site)
+```
+# test first with regular MRM
+```{r}
+
+#mrm
+mrm_pols1<- suppressWarnings(MRM(as.dist(bee.chao)~as.dist(flor)+as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(forest_dis),
+                method = "linear",
+                 nperm = 1000,
+                 ))
+
+
+mrm_pols1
+
+mrm_flor1<-suppressWarnings(MRM(as.dist(flor)~as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(forest_dis),
+                method = "linear",
+                 nperm = 1000,
+                 ))
+mrm_flor1
+
+```
+# Modified MRMs
+```{r}
+#Modified mrm with year permute control
+mrm_pols<- suppressWarnings(MRM.base(as.dist(bee.chao)~as.dist(flor)+as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(forest_dis),
+                method = "linear",
+                 nperm = 1000,
+                 permute.control = yearpermute.control))
+mrm_pols
+
+mrm_flor<-suppressWarnings(MRM.base(as.dist(flor)~as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(forest_dis),
+                method = "linear",
+                 nperm = 1000,
+                 permute.control = yearpermute.control))
+mrm_flor
+
+# Modified mrm with site permute control
+mrm_pols_2<- suppressWarnings(MRM.base(as.dist(bee.chao)~as.dist(flor)+as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(forest_dis),
+                method = "linear",
+                 nperm = 1000,
+                 permute.control = sitepermute.control))
+mrm_pols_2
+
+mrm_flor_2<-suppressWarnings(MRM.base(as.dist(flor)~as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(forest_dis),
+                method = "linear",
+                 nperm = 1000,
+                 permute.control = sitepermute.control))
+mrm_flor_2
+
+```
+
+=======
+---
+title: "Sky Island MRMs (permute modification)"
+author: "Lili Benitez"
+date: "6/8/2024"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    number_sections: true
+    theme: cosmo
+    code_folding: hide
+    
+---    
+# Overview
+Attempting to run MRMs on chao dissimilarity metrics for plants and pollinators across the Madrean Sky Islands. Code to modify the MRMs to account for site/year replication comes from Kaysee Arrowsmith with her permission. 
+
+# Load Packages
+```{r packages, message=FALSE, warning=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(ecodist)
+library(kableExtra)
+library(DHARMa)
+library(glmmTMB)
+library(Matrix)
+library(lmtest)
+library(bipartite)
+library(vegan)
+library(piecewiseSEM)
+library(geosphere)
+library(MASS)
+library(car)
+library(conflicted)
+conflicts_prefer(dplyr::select)
+theme_set(theme_classic())
+```
+
+# Import data
+```{r}
+#setwd("")
+
+#netted bee community chao dissimilarity
+bee.chao<-read.csv("net.bee.prob.csv")
+rownames(bee.chao)<-bee.chao$X
+bee.chao<-bee.chao%>%
+  select(-X)
+# netted syrphid community chao dissimilarity 
+#syrphs<-read.csv("net.syrph.prob.csv")
+
+#flowering community chao dissimilarity data
+flor<-read.csv("flor.chao.prob.csv")
+rownames(flor)<-flor$X
+flor<-flor%>%
+  select(-X)
+#precipitation 
+precip<-read.csv("precip_4years.csv")%>%
+  select(Precip, SiteYear)
+rownames(precip)<-precip$SiteYear
+precip<-precip%>%
+  select(Precip)
+precipitation_matrix<-as.matrix(dist(precip,method = "maximum",diag=TRUE))
+#geographic distance
+geo.dis<-read.csv("geo.dis.csv")%>%
+  select(-X)%>%
+  as.matrix()
+rownames(geo.dis)<-precip$SiteYear
+colnames(geo.dis)<-precip$SiteYear
+#convert to Km
+geo.km<-geo.dis/1000
+
+#canopy cover
+canopy<-read.csv("canopy_2km.csv")
+rownames(canopy)<-canopy$SiteYear
+canopy<-canopy%>%select(-SiteYear)
+canopy_dis<-as.matrix(dist(canopy,method = "maximum",diag=TRUE))
+#write.csv(canopy_dis, "canopy.dist.csv",row.names = FALSE)
+```
+
+#Here Kaysee slightly altered the `MRM` function from the `ecodist` package to accept a response variable in the form of `cbind(successes, failures)`. 
+
+```{r mrm customize}
+MRM.base <- function (formula = formula(data), data, nperm = 1000, method = "linear", mrank = FALSE, permute.control = "permute.control") {
+  m <- match.call(expand.dots = FALSE)
+  m2 <- match(c("formula", "data"), names(m), nomatch = 0)
+  m <- m[c(1, m2)]
+  m[[1]] <- as.name("model.frame")
+  m <- eval(m, parent.frame())
+  m <- as.matrix(m)
+  n <- (1 + sqrt(1 + 8 * nrow(m)))/2
+  if (abs(n - round(n)) > 1e-07) 
+    stop("Matrix not square.\n")
+  n <- round(n)
+  if (ncol(m) < 2) 
+    stop("Not enough data. \n")
+  if (method == "linear") {
+    X <- m[, 2:ncol(m), drop = FALSE]
+      Y <- m[, 1, drop = FALSE]
+      colnames(Y) <- "Y"
+      newdata <- data.frame(Y = Y, X)
+      fit1 <- lm(Y ~ ., data = newdata)
+      b <- coefficients(fit1)
+      sig <- summary(fit1)$sigma
+      sig.df <- summary(fit1)$df[2]
+      b.pval <- NA
+      dev.pval <- NA
+      if (nperm > 0) {
+        b.all <- matrix(NA, nrow = nperm, ncol = length(b))
+        b.all[1, ] <- b
+        sig.all <- rep(NA, nperm)
+        sig.all[1] <- sig
+        for (i in 2:nperm) {
+          newSample <- shuffle(n, control = permute.control)
+          newY <- full(Y)
+          newY <- newY[newSample, newSample]
+          newY <- lower(newY)
+          newdata <- data.frame(Y = newY, X = X)
+          newfit <- lm(Y ~ ., data = newdata)
+          b.all[i, ] <- coefficients(newfit)
+          sig.all[i] <- summary(newfit)$sigma
+        }
+        b.pval <- apply(b.all, 2, function(x) length(x[abs(x) >= 
+          abs(x[1])])/nperm)
+        R2.pval <- length(sig.all[sig.all >= sig.all[1]])/nperm
+      }
+      results <- list(coef = cbind(b, pval = b.pval), 
+        R2 = c(R2 = sig, R2.df = sig.df, 
+          R2.pval = R2.pval))
+  }
+  else {
+    if (method == "logistic") {
+      X <- m[, 2:ncol(m), drop = FALSE]
+      Y <- m[, 1, drop = FALSE]
+      colnames(Y) <- "Y"
+      newdata <- data.frame(Y = Y, X)
+      fit1 <- glm(Y ~ ., data = newdata, family = binomial(link = "logit"))
+      b <- coefficients(fit1)
+      dev <- summary(fit1)$deviance
+      dev.df <- summary(fit1)$df.residual
+      b.pval <- NA
+      dev.pval <- NA
+      if (nperm > 0) {
+        b.all <- matrix(NA, nrow = nperm, ncol = length(b))
+        b.all[1, ] <- b
+        dev.all <- rep(NA, nperm)
+        dev.all[1] <- dev
+        for (i in 2:nperm) {
+          newSample <- shuffle(n, control = permute.control)
+          newY <- full(Y)
+          newY <- newY[newSample, newSample]
+          newY <- lower(newY)
+          newdata <- data.frame(Y = newY, X = X)
+          newfit <- glm(Y ~ ., data = newdata, family = binomial(link = "logit"))
+          b.all[i, ] <- coefficients(newfit)
+          dev.all[i] <- summary(newfit)$deviance
+        }
+        b.pval <- apply(b.all, 2, function(x) length(x[abs(x) >= 
+          abs(x[1])])/nperm)
+        dev.pval <- length(dev.all[dev.all >= dev.all[1]])/nperm
+      }
+      results <- list(coef = cbind(b, pval = b.pval), 
+        dev = c(resid.dev = dev, resid.df = dev.df, 
+          dev.pval = dev.pval))
+    }
+    else {
+      stop("method must be 'linear' or 'logistic'\n")
+    }
+    }
+  results
+}
+```
+# Analysis, creating permute controls by year and site
+```{r permutation control year}
+# Permutation control for blocks and plots
+siteyear.df <- data.frame(row = 1:nrow(bee.chao),
+                        concat = rownames(bee.chao),
+                        year = str_sub(rownames(bee.chao), start=-4), 
+                        site=str_sub(rownames(bee.chao), start=1, end=2))
+
+
+yearpermute.control <- how(Within(type = "free"),
+                       blocks = siteyear.df$year)
+
+sitepermute.control<-how(Within(type = "free"),
+                       blocks = siteyear.df$site)
+```
+
+# test first with regular MRM from ecodist package
+```{r}
+
+#mrm
+mrm_bees1<- suppressWarnings(MRM(as.dist(bee.chao)~as.dist(flor)+as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(canopy_dis),
+                method = "linear",
+                 nperm = 1000,
+                 ))
+
+
+mrm_bees1
+
+mrm_flor1<-suppressWarnings(MRM(as.dist(flor)~as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(canopy_dis),
+                method = "linear",
+                 nperm = 1000,
+                 ))
+mrm_flor1
+
+```
+
+
+# Modified MRMs permuting by year (I think we want this one)
+```{r}
+#Modified mrm with year permute control
+mrm_bees<- suppressWarnings(MRM.base(as.dist(bee.chao)~as.dist(flor)+as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(canopy_dis),
+                method = "linear",
+                 nperm = 10000,
+                 permute.control = yearpermute.control))
+mrm_bees
+
+mrm_flor<-suppressWarnings(MRM.base(as.dist(flor)~as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(canopy_dis),
+                method = "linear",
+                 nperm = 1000,
+                 permute.control = yearpermute.control))
+mrm_flor
+```
+
+```{r, FAKE DATA}
+Fake.bees<-read.csv("Bee.FAKE.csv")%>%
+  select(-X)
+Fake.flor<-read.csv("flor.FAKE.csv")
+rownames(Fake.flor)<Fake.flor$X
+Fake.flor<-Fake.flor%>%
+  select(-X)
+mrm_fake<- suppressWarnings(MRM(as.dist(Fake.bees)~as.dist(Fake.flor),
+                method = "linear",
+                 nperm = 1000,
+                 ))
+mrm_fake
+
+plot(as.dist(Fake.bees)~as.dist(Fake.flor))
+
+
+mrm_fake_2<- suppressWarnings(MRM.base(as.dist(Fake.bees)~as.dist(Fake.flor),
+                method = "linear",
+                 nperm = 10000,
+                 permute.control = sitepermute.control))
+mrm_fake_2
+```
+# Modified MRMs permuting by site
+```{r}
+# Modified mrm with site permute control
+mrm_bees_2<- suppressWarnings(MRM.base(as.dist(bee.chao)~as.dist(flor)+as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(canopy_dis),
+                method = "linear",
+                 nperm = 1000,
+                 permute.control = sitepermute.control))
+mrm_bees_2
+
+mrm_flor_2<-suppressWarnings(MRM.base(as.dist(flor)~as.dist(precipitation_matrix)+as.dist(geo.km)+as.dist(canopy_dis),
+                method = "linear",
+                 nperm = 1000,
+                 permute.control = sitepermute.control))
+mrm_flor_2
+
+```
+# Plots for Botany Poster
+
+```{r}
+library(ggplot2)
+library(ggmatplot)
+flor.dat<-as.data.frame(as.dist(flor))
+bee.dat<-as.data.frame(as.dist(bee.chao))
+
+plot(as.dist(bee.chao)~as.dist(flor), col="blue") +
+abline(a= 4.900148e-01, b=2.625944e-01)
+
+p1<-ggmatplot(x=flor.dat, y=bee.dat,
+          fill="#009E73",
+          xlab = "floral chao dissimilarity",
+          ylab = "bee chao dissimilarity",
+          shape=18)+
+  geom_abline(intercept= 4.900148e-01, slope=2.625944e-01) 
+
+p2<-ggmatplot(x=as.dist(geo.km), y=flor.dat,
+          fill="orange",
+          xlab = "geographic distance",
+          ylab = "floral chao dissimilarity",
+          shape=18)+
+  geom_abline(intercept= 0.5325632864 , slope=0.0008396566) 
+
+```
+>>>>>>> a0f91f5b616b8a41f3d2393350a62d0fd99cb35f
