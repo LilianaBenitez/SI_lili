@@ -209,7 +209,7 @@ canopy.bee<-left_join(bee.sites, canopy, by="Site")%>%
 canopy.syrph<-left_join(syr.sites, canopy, by="Site")%>%
   unique()%>%
   arrange(Site) 
-
+#calculate difference
 canopy.bee.dis<-dist(canopy.bee,method = "maximum",diag=FALSE)
 canopy.bee.dis<-as.matrix(canopy.bee.dis)
 rownames(canopy.bee.dis)<-precip_bee$SiteYear
@@ -221,8 +221,34 @@ canopy.syrph.dis<-as.matrix(canopy.syrph.dis)
 rownames(canopy.syrph.dis)<-precip_syrph$SiteYear
 colnames(canopy.syrph.dis)<-rownames(canopy.syrph.dis)
 ```
-## Now for soil data
+## Now for soil data, going to just start off with clay content at the soil surface, from the SoilGrids database
 ```{r}
+clay<-read_csv("EnvironmentalData/Clay_at_surface.csv")%>%
+  unique()%>%
+  group_by(Site)%>%
+  mutate(mean_clay=(mean(clay_content)))%>%
+  select(Site, mean_clay)%>%
+  unique()%>%
+  arrange(Site)
+
+clay.bee<-left_join(bee.sites, clay, by="Site")%>%
+  unique()%>%
+  arrange(Site) 
+clay.syrph<-left_join(syr.sites, clay, by="Site")%>%
+  unique()%>%
+  arrange(Site) 
+
+#calculate difference
+clay.bee.dis<-dist(clay.bee,method = "maximum",diag=FALSE)
+clay.bee.dis<-as.matrix(clay.bee.dis)
+rownames(clay.bee.dis)<-clay.bee$SiteYear
+colnames(clay.bee.dis)<-rownames(clay.bee.dis)
+
+#same for syrphids
+clay.syrph.dis<-dist(clay.syrph,method = "maximum",diag=FALSE)
+clay.syrph.dis<-as.matrix(clay.syrph.dis)
+rownames(clay.syrph.dis)<-clay.syrph$SiteYear
+colnames(clay.syrph.dis)<-rownames(clay.syrph.dis)
 
 ```
 
