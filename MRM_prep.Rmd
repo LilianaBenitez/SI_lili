@@ -133,10 +133,96 @@ bloom.dis.syrph<-dis.chao(mean_bloom_syrph, index="jaccard", version='prob') #ca
 bloom.dis.syrph<-as.matrix(bloom.dis.syrph)#looks good
 
 ```
+
 ### we now want to calculate the geographic distances between sites
 ```{r}
+#need some dataframes of the site/years that are for each matrix
+bee.sites<-data.frame(Site=sum_quad$Site, SiteYear=sum_quad$SiteYear)%>%
+  unique()
+syr.sites<-data.frame(Site=sum_quad$Site, SiteYear=sum_quad$SiteYear)%>%
+  unique()
+syr.sites<-syr.sites%>%filter(!(SiteYear=="UK2017"))
+ 
+library("geosphere")
 lat_long<-spec.net%>%
   select(Long, Lat, Site)%>%
   unique()
+####make geographic distance matrix for bees
+lat_long_bee<-left_join(bee.sites, lat_long, by="Site")%>%arrange(Site)
+
+geo_bee<-lat_long_bee%>%
+  select(Long, Lat)
+geo.dis_bee <- distm(geo_bee, fun = distGeo)
+rownames(geo.dis_bee)<-lat_long_bee$SiteYear
+colnames(geo.dis_bee)<-lat_long$SiteYear
+geo.bee.km<-geo.dis_bee/1000# Apply distm function
+colnames(geo.bee.km)<-rownames(geo.dis_bee)
+
+#write.csv(geo.km, "geo.dist.km.csv", row.names = FALSE)
+
+####make geographic distance matrix for syrphids
+
+lat_long_syrph<-left_join(syr.sites, lat_long, by="Site")%>%arrange(Site)
+
+geo_syrph<-lat_long_syrph%>%
+  select(Long, Lat)
+geo.dis_syrph <- distm(geo_syrph, fun = distGeo)
+rownames(geo.dis_syrph)<-lat_long_syrph$SiteYear
+colnames(geo.dis_syrph)<-rownames(geo.dis_syrph)
+geo.syrph.km<-geo.dis_syrph/1000#
+```
+
+###precipitation matrices: using just annual rainfall, although this could change later on
+```{r}
+precip<-read_csv("EnvironmentalData/precipitation_all.csv")%>%
+  unique()%>%
+  mutate(SiteYear=paste0(Site, Year))%>%
+  select(-Site, -Year, -Lat, -Long)
+precip_bee<-left_join(bee.sites, precip, by="SiteYear")%>%
+  unique()%>%
+  arrange(Site) #make sure it is in alphabetical order
+precip_syrph<-left_join(syr.sites, precip, by="SiteYear")%>%
+  unique()%>%
+  arrange(Site)
+
+precip.bee.dis<-dist(precip_bee,method = "maximum",diag=FALSE)
+precip.bee.dis<-as.matrix(precip.bee.dis)#check to make sure it matches the other matrices
+rownames(precip.bee.dis)<-precip_bee$SiteYear
+colnames(precip.bee.dis)<-precip_bee$SiteYear
+
+#do the same for syrphids
+precip.syrph.dis<-dist(precip_syrph,method = "maximum",diag=FALSE)
+precip.syrph.dis<-as.matrix(precip.syrph.dis)#check to make sure it matches the other matrices
+rownames(precip.syrph.dis)<-precip_syrph$SiteYear
+colnames(precip.syrph.dis)<-precip_syrph$SiteYear
+```
+## Now we use canopy cover from the NLCD (not the land cover raster, but their separate canopy cover one) (sort of as a proxy for area?) THis is just from 2021, but could extract from each year I think? 
+```{r}
+canopy<-read_csv("EnvironmentalData/canopy_2km.csv")%>%
+  unique()%>%
+  mutate(Site= substr(SiteYear, 1, 2))%>%
+  select(-SiteYear)
+
+canopy.bee<-left_join(bee.sites, canopy, by="Site")%>%
+  unique()%>%
+  arrange(Site) 
+canopy.syrph<-left_join(syr.sites, canopy, by="Site")%>%
+  unique()%>%
+  arrange(Site) 
+
+canopy.bee.dis<-dist(canopy.bee,method = "maximum",diag=FALSE)
+canopy.bee.dis<-as.matrix(canopy.bee.dis)
+rownames(canopy.bee.dis)<-precip_bee$SiteYear
+colnames(canopy.bee.dis)<-rownames(canopy.bee.dis)
+
+#same for syrphids
+canopy.syrph.dis<-dist(canopy.syrph,method = "maximum",diag=FALSE)
+canopy.syrph.dis<-as.matrix(canopy.syrph.dis)
+rownames(canopy.syrph.dis)<-precip_syrph$SiteYear
+colnames(canopy.syrph.dis)<-rownames(canopy.syrph.dis)
+```
+## Now for soil data
+```{r}
+
 ```
 
