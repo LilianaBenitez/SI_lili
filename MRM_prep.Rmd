@@ -251,7 +251,8 @@ rownames(clay.syrph.dis)<-clay.syrph$SiteYear
 colnames(clay.syrph.dis)<-rownames(clay.syrph.dis)
 
 ```
-# Building the models
-```{r}
+# Building the models- going to do this in the "Modified mrm.Rmd"
 
+```{r}
+save.image(file='MRM_prep.RData')
 ```

@@ -1,0 +1,130 @@
+---
+title: "Diversity plots"
+author: "Lili Benitez"
+date: "2024-10-31"
+output: html_document
+---
+
+```{r}
+load("../../Dropbox/skyIslands/data/spec_net.Rdata")
+precip<-read_csv("EnvironmentalData/precipitation_all.csv")%>%
+  select(Site, Year, Precip)%>%
+  unique()
+library(ggplot2)
+library(tidyverse)
+library(shades)
+library(lme4)
+library(lmerTest)
+```
+
+```{r}
+subset<-spec.net%>%
+  select(Year, SampleRound, Site, SyrphidAbundance, Net_SyrphidDiversity,MeanFloralDiversity, MeanFloralAbundance, Net_PollAbundance, Net_BeeAbundance,Net_BeeDiversity, Net_PollAbundance, Net_PollDiversity, Lat)
+subset<-subset%>%
+  group_by(Year, Site, SampleRound)%>%
+  unique()%>%
+  mutate(prev_year=Year-1)%>%
+  mutate(prev_2years=Year-2)
+subset_precip<-left_join(subset, precip, by=c("Site"="Site", "prev_year"="Year"))%>% #trying to get in prev year data
+        rename("Prev_precip"="Precip")                 
+subset_precip<-left_join(subset_precip, precip, join_by(Site, Year))
+subset_precip$Year<-as.factor(subset_precip$Year)
+```
+
+```{r, plots}
+ggplot(subset, aes(x=Year,y=MeanFloralDiversity, col=Year))+
+  geom_boxplot()+
+  ylab("Floral Diversity")+
+  theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+theme(legend.position="none")+
+  lightness(scale_colour_brewer(palette=17), scalefac(0.70))
+
+ggplot(subset, aes(x=Year,y=Net_BeeDiversity, col=Year))+
+  geom_boxplot()+
+  ylab("Bee Diversity")+
+  theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+theme(legend.position="none")+
+  lightness(scale_colour_brewer(palette=16), scalefac(0.70))
+
+ggplot(subset, aes(x=Year,y=Net_SyrphidDiversity, col=Year))+
+  geom_boxplot()+
+  ylab("Syrphid Diversity")+
+  theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+theme(legend.position="none")+
+  lightness(scale_colour_brewer(palette=12), scalefac(0.70))
+
+ggplot(subset, aes(x=MeanFloralDiversity,y=Net_BeeDiversity))+
+  geom_point()+
+  geom_smooth(method=lm)+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+theme(legend.position="none")+ 
+  lightness(scale_colour_brewer(palette=17), scalefac(0.70))+
+  facet_wrap(~Year)
+
+ggplot(subset_precip, aes(x=Precip,y=MeanFloralDiversity, col=Site))+
+  geom_point()+
+  geom_smooth(method=lm, se=FALSE)+ 
+  lightness(scale_colour_brewer(palette=17), scalefac(0.70))+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)
+
+ggplot(subset_precip, aes(x=Precip,y=MeanFloralAbundance, col=Year))+
+  geom_point()+
+  geom_smooth(method=lm)+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+
+  lightness(scale_colour_brewer(), scalefac(0.70))
+
+ggplot(subset_precip, aes(x=Precip,y=Net_BeeDiversity))+
+  geom_point()+
+  geom_smooth(method=lm)+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+theme(legend.position="none")+ 
+  lightness(scale_colour_brewer(), scalefac(0.70))+
+  xlab("Annual Precip")+
+  ylab("Bee Diversity")
+
+ggplot(subset_precip, aes(x=Precip,y=Net_BeeAbundance))+
+  geom_point()+
+  geom_smooth(method=lm)+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+theme(legend.position="none")+ 
+  lightness(scale_colour_brewer(), scalefac(0.70))
+
+ggplot(subset_precip, aes(x=Prev_precip,y=MeanFloralAbundance, col=Year))+
+  geom_point()+
+  geom_smooth(method=lm)+ 
+  lightness(scale_colour_brewer(palette=17), scalefac(0.70))+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)
+
+ggplot(subset_precip, aes(x=Prev_precip,y=Net_BeeDiversity))+
+  geom_point()+
+  geom_smooth(method=lm)+ 
+  lightness(scale_colour_brewer(palette=17), scalefac(0.70))+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+theme(legend.position="none")
+
+ggplot(subset_precip, aes(x=Lat,y=Net_BeeDiversity))+
+  geom_point()+
+  geom_smooth(method=lm)+ 
+  lightness(scale_colour_brewer(palette=17), scalefac(0.70))+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+
+  ylab("Bee Diversity")+
+  xlab("Latitude")
+
+ggplot(subset_precip, aes(x=Lat,y=MeanFloralDiversity, col=Year))+
+  geom_point()+
+  geom_smooth(method=lm, se=FALSE)+ 
+  lightness(scale_colour_brewer(palette=17), scalefac(0.70))+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+
+  xlab("Latitude")
+
+
+ggplot(subset_precip, aes(x=Lat,y=Precip))+
+  geom_point()+
+  geom_smooth(method=lm)+
+theme_classic(base_size = 20, base_family = "", base_line_size = 11/22, base_rect_size = 11/22)+
+  xlab("Latitude")+
+  ylab("Annual Precip")
+
+```
+
+```{r}
+subset$Year<-as.numeric(subset$Year)
+lmm_bee_diversity<-lmer(Net_BeeDiversity~MeanFloralDiversity+Year+(1|Site)+Precip+(1|SampleRound)+Lat, data=subset_precip)
+summary(lmm_bee_diversity)
+car::vif(lmm_bee_diversity)
+lmm_flor_diversity<-lmer(MeanFloralDiversity~+Year*Precip+(1|Site)+(1|SampleRound)+Lat, data=subset_precip)
+summary(lmm_flor_diversity)
+```
