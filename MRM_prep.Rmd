@@ -10,21 +10,172 @@ library(tidyverse)
 library(ggplot2)
 library(CommEcol)
 library(ecodist)
+library(vegan)
+library(stringr)
+library(conflicted)
 ```
 
 ### Read in specimen and veg data
 ```{r}
-load("../../Dropbox/skyIslands/data/spec_net.Rdata")
+load("../../../Dropbox/skyIslands/data/spec_net.Rdata")
 
 net_specimens<-spec.net%>%
-  filter(Method=="Net")#filter by netted insects, actually all are netted I guess
+  dplyr::filter(Method=="Net")#filter by netted insects, actually all are netted I guess
 
-veg<-read_csv("../../Dropbox/skyIslands_saved/data/relational/relational/traditional/veg-complete.csv")
-
-sitestats<-read_csv("../../Dropbox/skyIslands/data/sitestats.csv") #NO LONGITUDE???
+veg_quad<-read_csv("veg.bloom.quad.sp.csv")
 
 ```
-### Now I want to calculate chao dissimliarity for netted bee communities.
+### Now I want to calculate chao dissimliarity for hymenoptera
+```{r, Hymenoptera dissimilarity}
+Hym<-net_specimens%>%
+  filter(Order=="Hymenoptera")#filter all hymenoptera, goes down to 10,783
+
+Hym<-Hym%>%
+  select(Site, GenusSpecies, Year, SampleRound, State, Meadow) #don't need all the other info
+Hym_n<-Hym%>%
+  group_by(Site, Year,SampleRound)%>%
+  count(GenusSpecies)%>%
+filter(!(Site=="CC"))%>%# CC is just a non-site site
+  mutate(SiteYear=paste0(Site, Year))
+   #filter(!(SiteYear=="PL2017")) #veg data was messed up here, plus there was only one sample round before fire
+Hym_all<-data.frame( plots =Hym_n$SiteYear, species =Hym_n$GenusSpecies,
+                      freq =Hym_n$n, stringsAsFactors=FALSE)
+mean_Hym<-crosstab(plots, species, freq, data=Hym_all, type="mean")#average species frequencies
+
+
+
+```
+### Hym visualization
+```{r}
+mean_Hym$treatment=rownames(mean_Hym)
+mean_Hym<-mean_Hym%>%
+  mutate(siteID=stringr::str_extract(treatment, "^.{2}"))%>%
+  mutate(year=str_sub(treatment, start = 3, end=6))
+
+
+nmds_Hym<-metaMDS(mean_Hym[,1:240], k=2)
+
+
+
+ nmds_SiteScores_hym  <- as.data.frame(scores(nmds_Hym)$sites)%>%
+    # change rownames (site) to a column 
+    rownames_to_column(var = "SiteYear") %>%
+  mutate(SiteID=mean_Hym$siteID, Year=mean_Hym$year)
+# Extract NMDS scores for species  
+  nmds_SpeciesScores_hym <- 
+    as.data.frame(scores(nmds_Hym, "species"))
+ nmds_SpeciesScores_hym$species <- rownames(nmds_SpeciesScores_hym)  
+    
+ env_hym<-left_join(lat_long_bee, clay.bee, join_by(SiteYear==SiteYear))%>%
+  left_join(precip_bee)%>%
+  left_join(canopy.bee)
+en = envfit(nmds_Hym, env_hym, permutations = 999, na.rm = TRUE)
+ 
+ en_coord_cont_hym = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+
+
+# get centroid 
+site_Centroid_hym <- 
+  nmds_SiteScores_hym %>% 
+  group_by(SiteID) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_hym <- 
+    nmds_SiteScores_hym %>% 
+    group_by(SiteID) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+nmds_hym_site<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_hym, 
+             aes(x=NMDS1, y=NMDS2, colour = SiteID), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_hym, 
+             aes(x = axis1, y = axis2, color = SiteID), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_hym, 
+               aes(x = NMDS1, y = NMDS2, fill = SiteID, group = SiteID), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_hym, 
+            aes(x = axis1, y = axis2, label = SiteID)
+                ) +#add env vectors
+     
+     geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+       data = en_coord_cont, size =1, alpha = 0.5, colour = "grey30")+
+     geom_text(data = en_coord_cont_hym, aes(x = NMDS1, y = NMDS2), colour = "grey30", 
+       fontface = "bold", label = row.names(en_coord_cont_hym)) + 
+    theme_classic()
+    
+nmds_hym_site 
+
+############Year###################
+
+# get centroid 
+site_Centroid_hym <- 
+  nmds_SiteScores_hym %>% 
+  group_by(Year) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_hym <- 
+    nmds_SiteScores_hym %>% 
+    group_by(Year) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+nmds_hym_Year<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_hym, 
+             aes(x=NMDS1, y=NMDS2, colour = Year), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_hym, 
+             aes(x = axis1, y = axis2, color = Year), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_hym, 
+               aes(x = NMDS1, y = NMDS2, fill = Year, group = Year), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_hym, 
+            aes(x = axis1, y = axis2, label = Year)
+                ) +
+    #add env vectors
+     
+     geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+       data = en_coord_cont, size =1, alpha = 0.5, colour = "grey30")+
+     geom_text(data = en_coord_cont_hym, aes(x = NMDS1, y = NMDS2), colour = "grey30", 
+       fontface = "bold", label = row.names(en_coord_cont_hym)) + 
+    theme_classic()
+
+nmds_hym_Year
+  
+
+```
+
+
+
 ```{r, bee chao dissimilarity}
 ####bee dissimilarity####
 bee<-net_specimens%>%
@@ -44,9 +195,360 @@ bee_all<-data.frame( plots = bee_n$SiteYear, species =bee_n$GenusSpecies,
 mean_bee<-crosstab(plots, species, freq, data=bee_all, type="mean")#average species frequencies
 bee.dis<-dis.chao(mean_bee, index="jaccard", version='prob') #I think the probability version was better than the rare one for some reason? 
 bee.dis<-as.matrix(bee.dis) #at the moment, all site/year combos, diagonal is all zeros which is good
-
-#write.csv(net.bee.chao, "net.bee.prob.csv", row.names=FALSE)
 ```
+## bee NMDS visualization
+```{r}
+
+mean_bee$treatment=rownames(mean_bee)
+mean_bee<-mean_bee%>%
+  mutate(siteID=stringr::str_extract(treatment, "^.{2}"))%>%
+  mutate(year=str_sub(treatment, start = 3, end=6))
+
+
+nmds_bee<-metaMDS(mean_bee[,1:206], k=2)
+
+
+
+ nmds_SiteScores  <- as.data.frame(scores(nmds_bee)$sites)%>%
+    # change rownames (site) to a column 
+    rownames_to_column(var = "SiteYear") %>%
+  mutate(SiteID=mean_bee$siteID, Year=mean_bee$year)
+# Extract NMDS scores for species  
+  nmds_SpeciesScores <- 
+    as.data.frame(scores(nmds_bee, "species"))
+ nmds_SpeciesScores$species <- rownames(nmds_SpeciesScores)  
+
+ env_bee<-left_join(lat_long_bee, clay.bee, join_by(SiteYear==SiteYear))%>%
+  left_join(precip_bee)%>%
+  left_join(canopy.bee)
+en = envfit(nmds_bee, env_bee, permutations = 999, na.rm = TRUE)
+ 
+ en_coord_cont = as.data.frame(scores(en, "vectors")) * ordiArrowMul(en)
+ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores, 
+             aes(x=NMDS1, y=NMDS2, colour = Year), 
+             size = 2)+
+  theme_classic()+
+   geom_text(data = nmds_SpeciesScores, 
+            aes(x=NMDS1, y=NMDS2, label = species)) +
+  
+  theme_classic()
+  
+ 
+# get centroid 
+site_Centroid <- 
+  nmds_SiteScores %>% 
+  group_by(SiteID) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull <- 
+    nmds_SiteScores %>% 
+    group_by(SiteID) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+  ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores, 
+             aes(x=NMDS1, y=NMDS2, colour = SiteID), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid, 
+             aes(x = axis1, y = axis2, color = SiteID), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull, 
+               aes(x = NMDS1, y = NMDS2, fill = SiteID, group = SiteID), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid, 
+            aes(x = axis1, y = axis2, label = SiteID)
+                ) +
+    #add env vectors
+     
+     geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+       data = en_coord_cont, size =1, alpha = 0.5, colour = "grey30")+
+     geom_text(data = en_coord_cont, aes(x = NMDS1, y = NMDS2), colour = "grey30", 
+       fontface = "bold", label = row.names(en_coord_cont)) + 
+    theme_classic()
+  
+
+```
+## Diptera##
+```{r}
+Dip<-net_specimens%>%
+  filter(Order=="Diptera")#filter all Diptera- 3265 observations
+
+Dip<-Dip%>%
+  select(Site, GenusSpecies, Year, SampleRound, State, Meadow) #don't need all the other info
+Dip_n<-Dip%>%
+  group_by(Site, Year,SampleRound)%>%
+  count(GenusSpecies)%>%
+filter(!(Site=="CC"))%>%# CC is just a non-site site
+  mutate(SiteYear=paste0(Site, Year))
+   #filter(!(SiteYear=="PL2017")) #veg data was messed up here, plus there was only one sample round before fire
+Dip_all<-data.frame( plots =Dip_n$SiteYear, species =Dip_n$GenusSpecies,
+                      freq =Dip_n$n, stringsAsFactors=FALSE)
+mean_Dip<-crosstab(plots, species, freq, data=Dip_all, type="mean")#average species frequencies
+
+```
+## Diptera visualization
+
+```{r}
+mean_Dip$treatment=rownames(mean_Dip)
+mean_Dip<-mean_Dip%>%
+  mutate(siteID=stringr::str_extract(treatment, "^.{2}"))%>%
+  mutate(year=str_sub(treatment, start = 3, end=6))
+
+
+nmds_Dip<-metaMDS(mean_Dip[,1:77], k=2)
+
+
+
+ nmds_SiteScores_Dip  <- as.data.frame(scores(nmds_Dip)$sites)%>%
+    # change rownames (site) to a column 
+    rownames_to_column(var = "SiteYear") %>%
+  mutate(SiteID=mean_Dip$siteID, Year=mean_Dip$year)
+# Extract NMDS scores for species  
+  nmds_SpeciesScores_Dip <- 
+    as.data.frame(scores(nmds_Dip, "species"))
+ nmds_SpeciesScores_Dip$species <- rownames(nmds_SpeciesScores_Dip)  
+    
+  
+ 
+# get centroid 
+site_Centroid_Dip <- 
+  nmds_SiteScores_Dip %>% 
+  group_by(SiteID) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_Dip <- 
+    nmds_SiteScores_Dip %>% 
+    group_by(SiteID) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+nmds_Dip_site<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_Dip, 
+             aes(x=NMDS1, y=NMDS2, colour = SiteID), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_Dip, 
+             aes(x = axis1, y = axis2, color = SiteID), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_Dip, 
+               aes(x = NMDS1, y = NMDS2, fill = SiteID, group = SiteID), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_Dip, 
+            aes(x = axis1, y = axis2, label = SiteID)
+                ) +
+    theme_classic()
+
+nmds_Dip_site 
+
+############Year###################
+
+# get centroid 
+site_Centroid_Dip <- 
+  nmds_SiteScores_Dip %>% 
+  group_by(Year) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_Dip <- 
+    nmds_SiteScores_Dip %>% 
+    group_by(Year) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+nmds_Dip_Year<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_Dip, 
+             aes(x=NMDS1, y=NMDS2, colour = Year), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_Dip, 
+             aes(x = axis1, y = axis2, color = Year), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_Dip, 
+               aes(x = NMDS1, y = NMDS2, fill = Year, group = Year), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_Dip, 
+            aes(x = axis1, y = axis2, label = Year)
+                ) +
+    theme_classic()
+
+nmds_Dip_Year
+  
+
+```
+## Leps##
+```{r}
+Lep<-net_specimens%>%
+  filter(Order=="Lepidoptera")#filter all Lepidoptera- 1073 observations
+
+Lep<-Lep%>%
+  select(Site, GenusSpecies, Year, SampleRound, State, Meadow) #don't need all the other info
+Lep_n<-Lep%>%
+  group_by(Site, Year,SampleRound)%>%
+  count(GenusSpecies)%>%
+filter(!(Site=="CC"))%>%# CC is just a non-site site
+  mutate(SiteYear=paste0(Site, Year))
+   #filter(!(SiteYear=="PL2017")) #veg data was messed up here, plus there was only one sample round before fire
+Lep_all<-data.frame( plots =Lep_n$SiteYear, species =Lep_n$GenusSpecies,
+                      freq =Lep_n$n, stringsAsFactors=FALSE)
+mean_Lep<-crosstab(plots, species, freq, data=Lep_all, type="mean")#average species frequencies
+lep.dis<-dis.chao(mean_Lep, index="jaccard", version='prob') #I think the probability version was better than the rare one for some reason? 
+lep.dis<-as.matrix(lep.dis) #at the moment, all site/year combos, diagonal is all zeros which is good
+
+```
+
+## Lep visualization 
+```{r}
+mean_Lep$treatment=rownames(mean_Lep)
+mean_Lep<-mean_Lep%>%
+  mutate(siteID=stringr::str_extract(treatment, "^.{2}"))%>%
+  mutate(year=str_sub(treatment, start = 3, end=6))
+
+
+nmds_Lep<-metaMDS(mean_Lep[,1:85], k=2)
+
+
+
+ nmds_SiteScores_Lep  <- as.data.frame(scores(nmds_Lep)$sites)%>%
+    # change rownames (site) to a column 
+    rownames_to_column(var = "SiteYear") %>%
+  mutate(SiteID=mean_Lep$siteID, Year=mean_Lep$year)
+# Extract NMDS scores for species  
+  nmds_SpeciesScores_Lep <- 
+    as.data.frame(scores(nmds_Lep, "species"))
+ nmds_SpeciesScores_Lep$species <- rownames(nmds_SpeciesScores_Lep)  
+    
+  
+ 
+# get centroid 
+site_Centroid_Lep <- 
+  nmds_SiteScores_Lep %>% 
+  group_by(SiteID) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_Lep <- 
+    nmds_SiteScores_Lep %>% 
+    group_by(SiteID) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+nmds_Lep_site<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_Lep, 
+             aes(x=NMDS1, y=NMDS2, colour = SiteID), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_Lep, 
+             aes(x = axis1, y = axis2, color = SiteID), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_Lep, 
+               aes(x = NMDS1, y = NMDS2, fill = SiteID, group = SiteID), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_Lep, 
+            aes(x = axis1, y = axis2, label = SiteID)
+                ) +
+    theme_classic()
+
+nmds_Lep_site 
+
+############Year###################
+
+# get centroid 
+site_Centroid_Lep <- 
+  nmds_SiteScores_Lep %>% 
+  group_by(Year) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_Lep <- 
+    nmds_SiteScores_Lep %>% 
+    group_by(Year) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+nmds_Lep_Year<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_Lep, 
+             aes(x=NMDS1, y=NMDS2, colour = Year), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_Lep, 
+             aes(x = axis1, y = axis2, color = Year), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_Lep, 
+               aes(x = NMDS1, y = NMDS2, fill = Year, group = Year), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_Lep, 
+            aes(x = axis1, y = axis2, label = Year)
+                ) +
+    theme_classic()
+
+nmds_Lep_Year
+  
+
+```
+
+
 
 ### Now we are doing the same thing for the syrphids
 ```{r, syrph chao dissimilarity}
@@ -132,7 +634,151 @@ bloom.dis.syrph<-dis.chao(mean_bloom_syrph, index="jaccard", version='prob') #ca
 
 bloom.dis.syrph<-as.matrix(bloom.dis.syrph)#looks good
 
+#leps
+sum_quad_lep<-sum_quad%>%
+   mutate(SiteYear=paste0(Site, Year))%>%
+  filter(  !(SiteYear=="RP2022"))%>% #no specimen data for RP in 2018???
+  filter(!(SiteYear=="SS2017"))%>%#veg data was messed up here, plus there was only one sample round before fire
+  filter(!(SiteYear=="UK2017"),!(SiteYear=="PL2017") )%>% 
+  select(SiteYear, PlantGenusSpecies, Year, sum_abundance_site_SR,sum_blooms_site_SR, SampleRound)
+
+
+bloom_lep<-data.frame( plots = sum_quad_lep$SiteYear, species = sum_quad_lep$PlantGenusSpecies, freq = sum_quad_lep$sum_blooms_site_SR, sampleR=sum_quad_lep$SampleRound, stringsAsFactors=FALSE)%>% #this takes the frequencies of each species at the quadrat level and makes it into a dataframe for 'crosstab'
+  unique()
+mean_bloom_lep<-crosstab(plots, species, freq, data=bloom_lep, type="mean")#average species frequencies across sample round, transpose so species are the columns and siteyears are the rows
+
+bloom.dis.lep<-dis.chao(mean_bloom_lep, index="jaccard", version='prob') #calculates chao dissimilarity across the siteyears
+
+bloom.dis.lep<-as.matrix(bloom.dis.lep)#looks good
+
+
+
+
 ```
+
+### Flowering NMDS
+```{r}
+library(goeveg)
+mean_bloom$treatment=rownames(mean_bloom)
+mean_flor<-mean_bloom%>%
+  mutate(siteID=stringr::str_extract(treatment, "^.{2}"))%>%
+  mutate(year=str_sub(treatment, start = 3, end=6))
+
+dimcheck_out <- 
+  dimcheckMDS(mean_flor[,1:108],
+              distance = "bray",
+              k = 6)
+
+nmds_flor<-metaMDS(mean_flor[,1:108], k=4)
+
+
+
+
+ nmds_SiteScores_flor  <- as.data.frame(scores(nmds_flor)$sites)%>%
+    # change rownames (site) to a column 
+    rownames_to_column(var = "SiteYear") %>%
+  mutate(SiteID=mean_flor$siteID, Year=mean_flor$year)
+# Extract NMDS scores for species  
+  nmds_SpeciesScores_flor <- 
+    as.data.frame(scores(nmds_flor, "species"))
+ nmds_SpeciesScores_flor$species <- rownames(nmds_SpeciesScores_flor)  
+    
+  
+ 
+# get centroid 
+site_Centroid_flor <- 
+  nmds_SiteScores_flor %>% 
+  group_by(SiteID) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_flor <- 
+    nmds_SiteScores_flor %>% 
+    group_by(SiteID) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+nmds_bloom_stress <- nmds_flor$stress
+  
+  # use ggplot to plot 
+nmds_flor_site<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_flor, 
+             aes(x=NMDS1, y=NMDS2, colour = SiteID), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_flor, 
+             aes(x = axis1, y = axis2, color = SiteID), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_flor, 
+               aes(x = NMDS1, y = NMDS2, fill = SiteID, group = SiteID), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_flor, 
+            aes(x = axis1, y = axis2, label = SiteID)
+                ) +
+   # add stress value
+  annotate("text", x = 0.75, y = 0.65, 
+           label = paste("2d stress =", round(nmds_bloom_stress, 3)))+
+    theme_classic()
+
+nmds_flor_site 
+
+############Year###################
+
+# get centroid 
+site_Centroid_flor <- 
+  nmds_SiteScores_flor %>% 
+  group_by(Year) %>% 
+    summarise(axis1 = mean(NMDS1),
+              axis2 = mean(NMDS2)) %>% 
+  ungroup()
+
+
+# extract convex hull
+site.hull_flor <- 
+    nmds_SiteScores_flor %>% 
+    group_by(Year) %>%
+    slice(chull(NMDS1, NMDS2))
+  
+  
+#nmds_stress <- nmds$stress
+  
+  # use ggplot to plot 
+nmds_flor_Year<- ggplot() + 
+  
+  # add site scores
+  geom_point(data = nmds_SiteScores_flor, 
+             aes(x=NMDS1, y=NMDS2, colour = Year), size = 2) + 
+    # add centroid 
+  geom_point(data = site_Centroid_flor, 
+             aes(x = axis1, y = axis2, color = Year), 
+             size = 5, shape = 17) +
+    
+  # add convex hull
+  geom_polygon(data = site.hull_flor, 
+               aes(x = NMDS1, y = NMDS2, fill = Year, group = Year), 
+               alpha = 0.30)+
+  
+  # add species scores 
+  geom_text(data = site_Centroid_flor, 
+            aes(x = axis1, y = axis2, label = Year)
+                ) +
+    theme_classic()
+
+nmds_flor_Year
+  
+
+
+
+```
+
 
 ### we now want to calculate the geographic distances between sites
 ```{r}
@@ -142,11 +788,21 @@ bee.sites<-data.frame(Site=sum_quad$Site, SiteYear=sum_quad$SiteYear)%>%
 syr.sites<-data.frame(Site=sum_quad$Site, SiteYear=sum_quad$SiteYear)%>%
   unique()
 syr.sites<-syr.sites%>%filter(!(SiteYear=="UK2017"))
+lep.sites<-data.frame(Site=sum_quad$Site, SiteYear=sum_quad$SiteYear)%>%
+  unique()
+lep.sites<-lep.sites%>%filter(!(SiteYear=="UK2017"), !(Site=="RP"),!(Site=="SS"))
  
 library("geosphere")
 lat_long<-spec.net%>%
   select(Long, Lat, Site)%>%
   unique()
+
+#write.csv(lat_long, "lat.long.csv", row.names = FALSE )
+```
+
+
+```{r}
+library(sp)
 ####make geographic distance matrix for bees
 lat_long_bee<-left_join(bee.sites, lat_long, by="Site")%>%arrange(Site)
 
@@ -160,6 +816,7 @@ colnames(geo.bee.km)<-rownames(geo.dis_bee)
 
 #write.csv(geo.km, "geo.dist.km.csv", row.names = FALSE)
 
+
 ####make geographic distance matrix for syrphids
 
 lat_long_syrph<-left_join(syr.sites, lat_long, by="Site")%>%arrange(Site)
@@ -170,6 +827,193 @@ geo.dis_syrph <- distm(geo_syrph, fun = distGeo)
 rownames(geo.dis_syrph)<-lat_long_syrph$SiteYear
 colnames(geo.dis_syrph)<-rownames(geo.dis_syrph)
 geo.syrph.km<-geo.dis_syrph/1000#
+
+
+####make geographic distance matrix for Leps
+
+lat_long_lep<-left_join(lep.sites, lat_long, by="Site")%>%arrange(Site)
+
+geo_lep<-lat_long_lep%>%
+  select(Long, Lat)
+geo.dis_lep <- distm(geo_lep, fun = distGeo)
+rownames(geo.dis_lep)<-lat_long_lep$SiteYear
+colnames(geo.dis_lep)<-rownames(geo.dis_lep)
+geo.lep.km<-geo.dis_lep/1000#
+
+
+```
+
+
+```{r}
+
+#MORAN I
+geo.dists.inv <- 1/geo.dis_bee
+geo.dists.inv[1:5, 1:5] <- 0
+geo.dists.inv[6:9, 6:9] <- 0
+geo.dists.inv[10:13, 10:13] <- 0
+geo.dists.inv[14:18, 14:18] <- 0
+geo.dists.inv[19:23, 19:23] <- 0
+geo.dists.inv[24:25, 24:25] <- 0
+geo.dists.inv[26:30, 26:30] <- 0
+geo.dists.inv[31:34, 31:34] <- 0
+diag(geo.dists.inv)<-0
+
+geo.dists.inv
+
+
+ 
+Moran.I(mean_bee$Agapostemon.angelicus, geo.dists.inv)
+num_species <- ncol(mean_bee)
+moran_results <- data.frame(species = character(), 
+                            moran_i = numeric(), 
+                            p_value = numeric(), 
+                            stringsAsFactors = FALSE)
+
+
+for (i in 1:num_species) {
+  species_name <- names(mean_bee)[i]
+  species_vector <- mean_bee[, i]
+  
+  # Calculate Moran's I
+  moran_test <- Moran.I(species_vector, geo.dists.inv)
+  
+  # Debug output
+  cat("\nSpecies:", species_name, "\n")
+  print(moran_test)
+  
+  # Check if moran_test is valid
+  if (!is.null(moran_test) && !is.null(moran_test$estimate) && !is.null(moran_test$p.value)) {
+    # Store the results
+    moran_results[i, "species"] <- species_name
+    moran_results[i, "moran_i"] <- moran_test$estimate[1]
+    moran_results[i, "p_value"] <- moran_test$p.value
+  } else {
+    warning(paste("Moran.I failed for species", species_name))
+    moran_results[i, "species"] <- species_name
+    moran_results[i, "moran_i"] <- NA
+    moran_results[i, "p_value"] <- NA
+  }
+}
+
+# Preallocate results with NA values
+moran_results <- data.frame(
+  species = names(mean_bee),
+  moran_i = NA_real_,
+  p_value = NA_real_,
+  stringsAsFactors = FALSE
+)
+
+# Preallocate results with NA values
+moran_results <- data.frame(
+  species = names(mean_bee),
+  moran_i = NA_real_,
+  p_value = NA_real_,
+  stringsAsFactors = FALSE
+)
+
+# Preallocate result data frame
+moran_results <- data.frame(
+  species = names(mean_bee),
+  moran_i = NA_real_,
+  p_value = NA_real_,
+  stringsAsFactors = FALSE
+)
+### CHatgpt GENERATED CODE
+for (i in 1:num_species) {
+  species_name <- names(mean_bee)[i]
+  species_vector <- mean_bee[[i]]  # safer than mean_bee[, i]
+
+  # Skip if species_vector is all NAs or constant
+  if (all(is.na(species_vector)) || length(unique(na.omit(species_vector))) < 2) {
+    warning(paste("Skipping species:", species_name, "- Not enough valid/unique values"))
+    next
+  }
+
+  # Try Moran.I and catch errors
+  moran_test <- tryCatch({
+    Moran.I(species_vector, geo.dists.inv)
+  }, error = function(e) {
+    warning(paste("Moran.I failed for species:", species_name, "-", e$message))
+    return(NULL)
+  })
+
+  # Assign results only if test succeeded and has valid structure
+  if (!is.null(moran_test)) {
+    # Ensure expected structure
+    moran_i_val <- if (!is.null(moran_test$observed) && length(moran_test$observed) >= 1) moran_test$observed[1] else NA
+    p_val       <- if (!is.null(moran_test$p.value)) moran_test$p.value else NA
+
+    # Final assignment
+    moran_results$moran_i[i] <- moran_i_val
+    moran_results$p_value[i] <- p_val
+  }
+}
+
+
+
+# View results for all species
+print(moran_results)
+```
+
+
+```{r, moran for community data?}
+# Assuming `site_coords` contains your site coordinates
+# The `ape` package can generate the spatial eigenvectors
+pcnm_vectors <- pcnm(dist(lat_long_bee))$vectors
+
+
+# Test for significance of the spatial structure using `vegan::rda`
+# The `comm_data` is constrained by the PCNM variables
+rda_result <- vegan::rda(mean_bee, pcnm_vectors)
+
+# Perform a permutation test to assess significance
+anova_result <- anova.cca(rda_result, permutations = 999)
+
+# Print the results
+print(anova_result)
+
+```
+
+```{r, Moran's I }
+library(spdep)
+library(vegan)
+library(ape)
+
+#lat long for 2017 sites
+lat_long_2017<-lat_long_bee%>%
+  mutate(year=str_sub(SiteYear, start = 3, end=6))%>%
+  filter(year=="2017")
+# Convert coordinates to a spatial object (required by `spdep`)
+coords <- as.matrix(lat_long_2017[, c("Lat", "Long")])
+
+# Create a spatial weights matrix (e.g., based on k-nearest neighbors)
+nb_object_2 <- knearneigh(coords, k=4) # Defines neighbors based on 4 nearest sites
+listw_object <- nb2listw(nb_object_2)
+
+
+# Assuming `comm_data` has species abundances in columns
+num_species <- ncol(mean_bee)
+moran_results <- data.frame(species = character(), 
+                            moran_i = numeric(), 
+                            p_value = numeric(), 
+                            stringsAsFactors = FALSE)
+
+for (i in 1:num_species) {
+  species_name <- names(mean_bee)[i]
+  species_vector <- mean_bee[, i]
+  
+  # Calculate Moran's I test using the `spdep` package
+  moran_test <- moran.test(species_vector, listw_object, zero.policy = TRUE)
+  
+  # Store the results
+  moran_results[i, "species"] <- species_name
+  moran_results[i, "moran_i"] <- moran_test$estimate[1]
+  moran_results[i, "p_value"] <- moran_test$p.value
+}
+
+# View results for all species
+print(moran_results)
+
 ```
 
 ###precipitation matrices: using just annual rainfall, although this could change later on
@@ -184,6 +1028,9 @@ precip_bee<-left_join(bee.sites, precip, by="SiteYear")%>%
 precip_syrph<-left_join(syr.sites, precip, by="SiteYear")%>%
   unique()%>%
   arrange(Site)
+precip_lep<-left_join(lep.sites, precip, by="SiteYear")%>%
+  unique()%>%
+  arrange(Site)
 
 precip.bee.dis<-dist(precip_bee,method = "maximum",diag=FALSE)
 precip.bee.dis<-as.matrix(precip.bee.dis)#check to make sure it matches the other matrices
@@ -195,6 +1042,12 @@ precip.syrph.dis<-dist(precip_syrph,method = "maximum",diag=FALSE)
 precip.syrph.dis<-as.matrix(precip.syrph.dis)#check to make sure it matches the other matrices
 rownames(precip.syrph.dis)<-precip_syrph$SiteYear
 colnames(precip.syrph.dis)<-precip_syrph$SiteYear
+
+# leps
+precip.lep.dis<-dist(precip_lep,method = "maximum",diag=FALSE)
+precip.lep.dis<-as.matrix(precip.lep.dis)#check to make sure it matches the other matrices
+rownames(precip.lep.dis)<-precip_lep$SiteYear
+colnames(precip.lep.dis)<-precip_lep$SiteYear
 ```
 ## Now we use canopy cover from the NLCD (not the land cover raster, but their separate canopy cover one) (sort of as a proxy for area?) THis is just from 2021, but could extract from each year I think? 
 ```{r}
@@ -209,6 +1062,9 @@ canopy.bee<-left_join(bee.sites, canopy, by="Site")%>%
 canopy.syrph<-left_join(syr.sites, canopy, by="Site")%>%
   unique()%>%
   arrange(Site) 
+canopy.lep<-canopy.syrph<-left_join(lep.sites, canopy, by="Site")%>%
+  unique()%>%
+  arrange(Site)
 #calculate difference
 canopy.bee.dis<-dist(canopy.bee,method = "maximum",diag=FALSE)
 canopy.bee.dis<-as.matrix(canopy.bee.dis)
@@ -220,6 +1076,12 @@ canopy.syrph.dis<-dist(canopy.syrph,method = "maximum",diag=FALSE)
 canopy.syrph.dis<-as.matrix(canopy.syrph.dis)
 rownames(canopy.syrph.dis)<-precip_syrph$SiteYear
 colnames(canopy.syrph.dis)<-rownames(canopy.syrph.dis)
+
+#leps
+canopy.lep.dis<-dist(canopy.lep,method = "maximum",diag=FALSE)
+canopy.lep.dis<-as.matrix(canopy.lep.dis)
+rownames(canopy.lep.dis)<-precip_lep$SiteYear
+colnames(canopy.lep.dis)<-rownames(canopy.lep.dis)
 ```
 ## Now for soil data, going to just start off with clay content at the soil surface, from the SoilGrids database
 ```{r}
@@ -238,6 +1100,10 @@ clay.syrph<-left_join(syr.sites, clay, by="Site")%>%
   unique()%>%
   arrange(Site) 
 
+clay.lep<-left_join(lep.sites, clay, by="Site")%>%
+  unique()%>%
+  arrange(Site) 
+
 #calculate difference
 clay.bee.dis<-dist(clay.bee,method = "maximum",diag=FALSE)
 clay.bee.dis<-as.matrix(clay.bee.dis)
@@ -250,6 +1116,12 @@ clay.syrph.dis<-as.matrix(clay.syrph.dis)
 rownames(clay.syrph.dis)<-clay.syrph$SiteYear
 colnames(clay.syrph.dis)<-rownames(clay.syrph.dis)
 
+
+#same for lepids
+clay.lep.dis<-dist(clay.lep,method = "maximum",diag=FALSE)
+clay.lep.dis<-as.matrix(clay.lep.dis)
+rownames(clay.lep.dis)<-clay.lep$SiteYear
+colnames(clay.lep.dis)<-rownames(clay.lep.dis)
 ```
 # Building the models- going to do this in the "Modified mrm.Rmd"
 
